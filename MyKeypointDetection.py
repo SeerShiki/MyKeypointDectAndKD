@@ -23,49 +23,22 @@ def get_pixel_value(img, coords): #读取非整点的像素值
 
     return pixel_value[0, 0]
 
-def adjust_brightness(image, brightness):
-    """
-        提高/降低亮度
-        :param image: 输入图像;
-        :param brightness: 增加/降低的亮度 正为增加，负为降低
-        :return: 调整后的图像
-    """
-    if brightness != 0:
-        image = image.astype(np.float32)
-        image = image + brightness
-        image = np.clip(image, 0, 255)
-        image = image.astype(np.uint8)
-    return image
-
-def sharpen_image(image):
-    """
-        锐化图像
-        :param image: 输入图像;
-        :return: 锐化后的图像
-    """
-    kernel = np.array([[0, -1, 0],
-                       [-1, 5, -1],
-                       [0, -1, 0]])
-    sharpened = cv2.filter2D(image, -1, kernel)
-    return sharpened
-
-def method3_main_harries_getdata(img_path, bright, sharpen, shape, T, r, angle_deg):
+def method3_main_harries_getdata(img, T, r, angle_deg):
     """
         根据harries方法获得特征点与非特征点数据
-        :param img_path: 训练数据的来源图像
-        :param bright: 亮度调整度
-        :param sharpen: 是否锐化 0为否 1为是
-        :param shape: 图像尺寸
+        :param img: 图片
         :param T: 图片裁剪的边缘比例
         :param r: 获取特征点周围像素值的半径
         :param angle_deg: 周围方向均分的角度（角度制）
         :return: train_data和train_lab numpy类型
     """
-    gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    gray = cv2.resize(gray, shape)
-    gray = adjust_brightness(gray, bright)
-    if sharpen==1:
-        gray = sharpen_image(gray)
+    # gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    # gray = cv2.resize(gray, shape)
+    # gray = adjust_brightness(gray, bright)
+    # if sharpen==1:
+    #     gray = sharpen_image(gray)
+    # gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+    gray = img
     gray_arr = np.array(gray)
 
     dst = cv2.cornerHarris(gray, blockSize=2, ksize=3, k=0.08)
@@ -159,13 +132,10 @@ class TransformerClassifier(nn.Module):
         x = self.fc(x)
         return x
 
-def train_Teacher(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelParam, batch_size, epochs, device):
+def train_Teacher(img, T, r, angle_deg, ModelType, ModelParam, batch_size, epochs, device):
     """
         教师模型的训练
-        :param img_path: 训练数据的来源图像
-        :param bright: 亮度调整度
-        :param sharpen: 是否锐化 0为否 1为是
-        :param shape: 图像尺寸
+        :param img: 图片
         :param T: 图片裁剪的边缘比例
         :param r: 获取特征点周围像素值的半径
         :param angle_deg: 周围方向均分的角度（角度制）
@@ -176,7 +146,7 @@ def train_Teacher(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, 
         :param device: 设备
         :return: 无，但会保存Teacher模型为Teacher.pth
     """
-    data,lab = method3_main_harries_getdata(img_path, bright, sharpen, shape, T, r, angle_deg)
+    data,lab = method3_main_harries_getdata(img, T, r, angle_deg)
     data = torch.from_numpy(data)
     lab = torch.from_numpy(lab).view(-1, 1)
 
@@ -230,20 +200,18 @@ def train_Teacher(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, 
 
     torch.save(model.state_dict(), 'Teacher.pth')
 
-def train_Student(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelParamTeacher, ModelParamStudent,
+def train_Student(img, T, r, angle_deg, TeacherModelType, ModelParamTeacher, StudentModelType, ModelParamStudent,
                                batch_size, epochs, temperature, alpha, device):
     """
         学生模型的训练，即知识蒸馏
-        :param img_path: 训练数据的来源图像
-        :param bright: 亮度调整度
-        :param sharpen: 是否锐化 0为否 1为是
-        :param shape: 图像尺寸
+        :param img: 图片
         :param T: 图片裁剪的边缘比例
         :param r: 获取特征点周围像素值的半径
         :param angle_deg: 周围方向均分的角度（角度制）
-        :param ModelType: 模型代号 1:SimpleRNN   2:Transformer
-        :param ModelParamStudent: 学生模型的参数
+        :param TeacherModelType: 教师模型代号 1:SimpleRNN   2:Transformer
         :param ModelParamTeacher: 教师模型的参数
+        :param StudentModelType: 学生模型代号 1:SimpleRNN   2:Transformer
+        :param ModelParamStudent: 学生模型的参数
         :param batch_size: batch大小
         :param epochs: 训练循环次数
         :param temperature: 知识蒸馏温度参数
@@ -256,12 +224,14 @@ def train_Student(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, 
     output_size = 1
     student_model = 0
     teacher_model = 0
-    if ModelType==1:
+    if TeacherModelType == 1:
         teacher_model = SimpleRNN(input_size, int(ModelParamTeacher[0]), int(output_size))
-        student_model = SimpleRNN(input_size, int(ModelParamStudent[0]), int(output_size))
-    elif ModelType==2:
+    elif TeacherModelType == 2:
         teacher_model = TransformerClassifier(int(input_size), ModelParamTeacher[0], ModelParamTeacher[1],
                                               ModelParamTeacher[2], 1, ModelParamTeacher[3])
+    if StudentModelType == 1:
+        student_model = SimpleRNN(input_size, int(ModelParamStudent[0]), int(output_size))
+    elif StudentModelType == 2:
         student_model = TransformerClassifier(int(input_size), ModelParamStudent[0], ModelParamStudent[1],
                                               ModelParamStudent[2], 1, ModelParamStudent[3])
 
@@ -274,7 +244,7 @@ def train_Student(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, 
     optimizer = optim.Adam(student_model.parameters(), lr=0.001)
     criterion = nn.BCEWithLogitsLoss().to(device)
 
-    data, lab = method3_main_harries_getdata(img_path, bright, sharpen, shape, T, r, angle_deg)
+    data, lab = method3_main_harries_getdata(img, T, r, angle_deg)
     data = torch.from_numpy(data)
     lab = torch.from_numpy(lab).view(-1, 1)
 
@@ -326,30 +296,28 @@ def train_Student(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, 
 
     torch.save(student_model.state_dict(), 'Student.pth')
 
-def KnowledgeDistillation(ModelType, ModelParam, img_path, bright, sharpen, shape, T, r, angle_deg):
-    if ModelType == 1: # SimpleRNN model
-        hidden_size_Teacher = ModelParam[0]
-        hidden_size_Student = ModelParam[1]
-        batch_size = ModelParam[2]
-        epoch = ModelParam[3]
-        train_Teacher(img_path, bright, sharpen, shape, T, r, angle_deg, hidden_size_Teacher,
-                                          batch_size, epoch)
-        train_Student(img_path, bright, sharpen, shape, T, r, angle_deg, hidden_size_Student,
-                                          hidden_size_Teacher, batch_size, epoch, 2, 0.5)
-    elif ModelType==2:
-        hidden_size_Teacher = ModelParam[0]
-        hidden_size_Student = ModelParam[1]
-        batch_size = ModelParam[2]
-        epoch = ModelParam[3]
+def compute_centroid(image_patch):
+    # 计算质心
+    M, N = image_patch.shape
+    x_coords, y_coords = np.meshgrid(np.arange(N), np.arange(M))
+    total_intensity = np.sum(image_patch)
+    x_centroid = np.sum(x_coords * image_patch) / total_intensity
+    y_centroid = np.sum(y_coords * image_patch) / total_intensity
+    return x_centroid, y_centroid
 
+def compute_orientation(image_patch, x_centroid, y_centroid):
+    # 计算方向
+    M, N = image_patch.shape
+    x_coords, y_coords = np.meshgrid(np.arange(N), np.arange(M))
+    x_diff = x_coords - x_centroid
+    y_diff = y_coords - y_centroid
+    orientation = np.arctan2(np.sum(y_diff * image_patch), np.sum(x_diff * image_patch))
+    return np.degrees(orientation)
 
-def Predict(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelParam, model_path, t,  device):
+def Predict(img, T, r, angle_deg, ModelType, ModelParam, model_path, t,  device):
     """
         使用特定模型检测特征点
-        :param img_path: 训练数据的来源图像
-        :param bright: 亮度调整度
-        :param sharpen: 是否锐化 0为否 1为是
-        :param shape: 图像尺寸
+        :param img: 图片
         :param T: 图片裁剪的边缘比例
         :param r: 获取特征点周围像素值的半径
         :param angle_deg: 周围方向均分的角度（角度制）
@@ -358,7 +326,7 @@ def Predict(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelP
         :param model_path: 使用模型的名称
         :param t sigmoid阈值
         :param device: 设备
-        :return: 一个cv格式的灰度图，表示特征点检测结果
+        :return: kp列表表示特征点坐标
     """
     input_size = int(360 // angle_deg)
     output_size = 1
@@ -371,18 +339,19 @@ def Predict(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelP
     model.load_state_dict(torch.load(model_path))
     model.to(device)
     model.eval()
-    gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    gray = cv2.resize(gray, shape)
-    gray = adjust_brightness(gray, bright)
-    if sharpen == 1:
-        gray = sharpen_image(gray)
-
+    # gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    # gray = cv2.resize(gray, shape)
+    # gray = adjust_brightness(gray, bright)
+    # if sharpen == 1:
+    #     gray = sharpen_image(gray)
+    gray = img
     H=gray.shape[0]
     W=gray.shape[1]
     gray_arr = np.array(gray)
     gray_out = gray
     angle_rad=np.deg2rad(angle_deg)
     kp = []
+    patch_size = 7
 
     with torch.no_grad():
         for x in range(int(T * H), int(H - T * H), r):
@@ -398,7 +367,16 @@ def Predict(img_path, bright, sharpen, shape, T, r, angle_deg, ModelType, ModelP
                 #print(data)
                 output = model(data)
                 if output > t:
-                    cv2.circle(gray_out, (y, x), radius=1, color=10, thickness=-1)
+                    # cv2.circle(gray_out, (y, x), radius=1, color=10, thickness=-1)
+                    # half_patch = patch_size // 2
+                    # x0, y0 = max(x - half_patch, 0), max(y - half_patch, 0)
+                    # x1, y1 = min(x + half_patch, gray.shape[0]), min(y + half_patch, gray.shape[1])
+                    # patch = np.zeros((patch_size, patch_size), dtype=np.uint8)
+                    # patch[x0 - (x - half_patch):x1 - (x - half_patch), y0 - (y - half_patch):y1 - (y - half_patch)] \
+                    #     = gray[x0:x1, y0:y1]
+                    #
+                    # x_centroid, y_centroid = compute_centroid(patch)
+                    # orientation = compute_orientation(patch, x_centroid, y_centroid)
                     kp.append((x,y))
 
-    return gray, kp
+    return kp

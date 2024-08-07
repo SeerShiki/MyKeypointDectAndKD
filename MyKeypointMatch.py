@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import random
+from scipy.ndimage import rotate
 
 def get_random_pairs(num_pairs, patch_size):
     """
@@ -16,28 +17,13 @@ def get_random_pairs(num_pairs, patch_size):
         pairs.append(((x1, y1), (x2, y2)))
     return pairs
 
-def adjust_brightness(image, brightness):
-    """
-        提高/降低亮度
-        :param image: 输入图像;
-        :param brightness: 增加/降低的亮度 正为增加，负为降低
-        :return: 调整后的图像
-    """
-    if brightness != 0:
-        image = image.astype(np.float32)
-        image = image + brightness
-        image = np.clip(image, 0, 255)
-        image = image.astype(np.uint8)
-    return image
-
-def generate_brief_descriptors(keypoints, image, pairs, patch_size, brightness):
+def generate_brief_descriptors(keypoints, image, pairs, patch_size):
     """
         生成 BRIEF 描述子
         :param pairs: 随机点对
         :param keypoints: 特征点列表
         :param image: 输入图像（灰度图）
         :param patch_size: 特征点周围区域的大小
-        :param brightness: 亮度增减
         :return: 描述子数组
     """
     def extract_patch(image, keypoint, patch_size):
@@ -53,6 +39,7 @@ def generate_brief_descriptors(keypoints, image, pairs, patch_size, brightness):
     def compute_descriptor(patch, pairs):
         """计算 BRIEF 描述子"""
         descriptor = []
+        # patch = rotate(patch, -orientation, reshape=False)
         for (p1, p2) in pairs:
             try:
                 if patch[p1[1] + patch_size//2, p1[0] + patch_size//2] < patch[p2[1] + patch_size//2, p2[0] + patch_size//2]:
@@ -64,7 +51,6 @@ def generate_brief_descriptors(keypoints, image, pairs, patch_size, brightness):
         # return int(descriptor, 2)
         return descriptor
 
-    image = adjust_brightness(image,brightness)
     descriptors = []
     for kp in keypoints:
         # 提取特征点周围的补丁
@@ -112,10 +98,12 @@ def match(img1, img2, shape, kp1, kp2, descriptors1, descriptors2, count, mode):
     mean = sum(slope) / len(slope)
     variance = sum((x - mean) ** 2 for x in slope) / (len(slope) - 1)
 
-    if mode==1:#按汉明距离从小到大顺序查找
+    if mode==1:# 按汉明距离从小到大顺序查找
         mt = sorted(mt, key=lambda x: x[2])
     elif mode==2:# 随机挑选
         mt = random.sample(mt, len(mt))
+
+    print(len(mt))
 
     for i, match in enumerate(mt):
         if i==count:
@@ -123,7 +111,7 @@ def match(img1, img2, shape, kp1, kp2, descriptors1, descriptors2, count, mode):
         start_point = (kp1[match[0]][1], kp1[match[0]][0])
         end_point = (kp2[match[1]][1] + shape[0], kp2[match[1]][0])
 
-        if mean - 3 * variance < (start_point[1] - end_point[1]) / (start_point[0] - end_point[0]) < mean + 3 * variance:
+        if mean - 2 * variance < (start_point[1] - end_point[1]) / (start_point[0] - end_point[0]) < mean + 2 * variance:
             cv2.line(img, start_point, end_point, random.randint(0, 255), 1)
 
     return img
